@@ -97,16 +97,28 @@ export const sendMessageToGemini = async (message: string): Promise<GeminiRespon
       
       console.log("Server API response status:", response.status);
       
-      if (response.ok) {
-        const data = await response.json();
+      const responseData = await response.text();
+      console.log("Raw server response:", responseData);
+      
+      let data;
+      try {
+        data = JSON.parse(responseData);
+        console.log("Parsed server response:", data);
+      } catch (parseError) {
+        console.error("Error parsing server response:", parseError);
+        throw new Error("Invalid JSON response from server");
+      }
+      
+      if (response.ok && data && data.text) {
         console.log("Server API response received");
         return { text: data.text };
       } else {
-        const errorData = await response.json();
-        console.error("Server API error:", errorData);
+        const errorMessage = data?.error || 'Unknown server error';
+        console.error("Server API error:", errorMessage);
         
         // If server-side fails, we'll fall back to client-side
         console.log("Falling back to client-side API call...");
+        throw new Error(errorMessage);
       }
     } catch (serverError) {
       console.error("Error using server-side API route:", serverError);
@@ -129,7 +141,7 @@ export const sendMessageToGemini = async (message: string): Promise<GeminiRespon
     // Call the Gemini API with proper error handling
     try {
       console.log("Sending request to Gemini API...");
-      const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
       console.log("Request URL:", url);
       
       const requestBody = {
@@ -146,6 +158,8 @@ export const sendMessageToGemini = async (message: string): Promise<GeminiRespon
         ]
       };
       
+      console.log("Request body:", JSON.stringify(requestBody));
+      
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -158,27 +172,36 @@ export const sendMessageToGemini = async (message: string): Promise<GeminiRespon
       console.log("Response status:", response.status);
       console.log("Response ok:", response.ok);
 
+      const responseText = await response.text();
+      console.log("Raw response:", responseText);
+      
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Raw error response:", errorText);
-        
         let errorData;
         try {
-          errorData = JSON.parse(errorText);
+          errorData = JSON.parse(responseText);
           console.error("Parsed error data:", JSON.stringify(errorData, null, 2));
         } catch (e) {
           console.error("Error parsing error response:", e);
-          errorData = { error: { message: errorText || "Unknown error" } };
+          errorData = { error: { message: responseText || "Unknown error" } };
         }
         
         return {
           text: "Sorry, I'm having trouble connecting to my brain. Please try again later.",
-          error: errorData.error?.message || errorText || "Unknown error"
+          error: errorData.error?.message || responseText || "Unknown error"
         };
       }
 
-      const data = await response.json();
-      console.log("Response data received:", !!data);
+      let data;
+      try {
+        data = JSON.parse(responseText);
+        console.log("Response data received:", !!data);
+      } catch (parseError) {
+        console.error("Error parsing response:", parseError);
+        return {
+          text: "I received an invalid response. Please try again later.",
+          error: "Invalid JSON response"
+        };
+      }
       
       if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
         console.error("Unexpected API response format:", JSON.stringify(data, null, 2));
@@ -188,10 +211,10 @@ export const sendMessageToGemini = async (message: string): Promise<GeminiRespon
         };
       }
       
-      const responseText = data.candidates[0]?.content?.parts?.[0]?.text || "I couldn't generate a response. Please try again.";
-      console.log("Response text length:", responseText.length);
+      const responseContent = data.candidates[0]?.content?.parts?.[0]?.text || "I couldn't generate a response. Please try again.";
+      console.log("Response text length:", responseContent.length);
 
-      return { text: responseText };
+      return { text: responseContent };
     } catch (fetchError) {
       console.error('Fetch error calling Gemini API:', fetchError);
       if (fetchError instanceof Error) {
